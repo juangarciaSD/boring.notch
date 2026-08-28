@@ -16414,6 +16414,7 @@
       }
     },
     "Show battery percentage" : {
+      "extractionState" : "stale",
       "localizations" : {
         "ar" : {
           "stringUnit" : {
@@ -17212,6 +17213,9 @@
           }
         }
       }
+    },
+    "Shows battery percentage" : {
+
     },
     "Slider color" : {
       "localizations" : {

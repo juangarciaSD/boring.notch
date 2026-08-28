@@ -350,8 +350,10 @@ struct Charge: View {
                 Text("General")
             }
             Section {
-                Defaults.Toggle(key: .showBatteryPercentage) {
-                    Text("Show battery percentage")
+                if(deviceHasBattery()) {
+                    Defaults.Toggle(key: .showBatteryPercentage) {
+                        Text("Shows battery percentage")
+                    }
                 }
                 Defaults.Toggle(key: .showPowerStatusIcons) {
                     Text("Show power status icons")
