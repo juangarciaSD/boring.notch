@@ -15,6 +15,7 @@ enum RepeatMode: Int, Codable {
 
 struct PlaybackState {
     var bundleIdentifier: String
+    var audioCaptureBundleIdentifiers: [String] = []
     var isPlaying: Bool = false
     var title: String = "I'm Handsome"
     var artist: String = "Me"
@@ -26,4 +27,39 @@ struct PlaybackState {
     var repeatMode: RepeatMode = .off
     var lastUpdated: Date = Date.distantPast
     var artwork: Data?
+    var volume: Double = 0.5
+    var isFavorite: Bool = false
+
+    var effectiveAudioCaptureBundleIdentifiers: [String] {
+        let raw = audioCaptureBundleIdentifiers.isEmpty ? [bundleIdentifier] : audioCaptureBundleIdentifiers
+        return raw.normalizedBundleIdentifiers
+    }
+}
+
+extension Sequence where Element == String {
+    var normalizedBundleIdentifiers: [String] {
+        var seen = Set<String>()
+        return filter { value in
+            guard !value.isEmpty, !seen.contains(value) else { return false }
+            seen.insert(value)
+            return true
+        }
+    }
+}
+
+extension PlaybackState: Equatable {
+    static func == (lhs: PlaybackState, rhs: PlaybackState) -> Bool {
+        return lhs.bundleIdentifier == rhs.bundleIdentifier
+            && lhs.effectiveAudioCaptureBundleIdentifiers == rhs.effectiveAudioCaptureBundleIdentifiers
+            && lhs.isPlaying == rhs.isPlaying
+            && lhs.title == rhs.title
+            && lhs.artist == rhs.artist
+            && lhs.album == rhs.album
+            && lhs.currentTime == rhs.currentTime
+            && lhs.duration == rhs.duration
+            && lhs.isShuffled == rhs.isShuffled
+            && lhs.repeatMode == rhs.repeatMode
+            && lhs.artwork == rhs.artwork
+            && lhs.isFavorite == rhs.isFavorite
+    }
 }

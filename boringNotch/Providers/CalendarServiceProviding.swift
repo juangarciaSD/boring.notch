@@ -82,47 +82,26 @@ class CalendarService: CalendarServiceProviding {
     }
     
     private func fetchReminders(from start: Date, to end: Date, calendars: [EKCalendar]) async -> [EventModel] {
-        await withTaskGroup(of: [EKReminder].self) { group in
-            var allReminders: [EKReminder] = []
+        return await withCheckedContinuation { continuation in
+            // Create predicate for reminders with due dates in the specified range
+            let predicate = store.predicateForReminders(in: calendars)
             
-            // Fetch incomplete reminders
-            group.addTask {
-                await withCheckedContinuation { continuation in
-                    let predicate = self.store.predicateForIncompleteReminders(
-                        withDueDateStarting: start,
-                        ending: end,
-                        calendars: calendars
-                    )
-                    self.store.fetchReminders(matching: predicate) { reminders in
-                        continuation.resume(returning: reminders ?? [])
+            store.fetchReminders(matching: predicate) { reminders in
+                let filteredReminders = (reminders ?? []).filter { reminder in
+                    guard let dueDate = reminder.displayedDueDate else {
+                        return false
                     }
+                    
+                    return dueDate >= start && dueDate < end
                 }
-            }
-            
-            // Fetch completed reminders
-            group.addTask {
-                await withCheckedContinuation { continuation in
-                    let predicate = self.store.predicateForCompletedReminders(
-                        withCompletionDateStarting: start,
-                        ending: end,
-                        calendars: calendars
-                    )
-                    self.store.fetchReminders(matching: predicate) { reminders in
-                        continuation.resume(returning: reminders ?? [])
-                    }
+                
+                // Convert to EventModel
+                let eventModels = filteredReminders.compactMap { reminder in
+                    EventModel(from: reminder)
                 }
+                
+                continuation.resume(returning: eventModels)
             }
-            
-            for await reminders in group {
-                allReminders.append(contentsOf: reminders)
-            }
-            
-            // Remove duplicates and convert to EventModel
-            let uniqueReminders = Dictionary(grouping: allReminders, by: \.calendarItemIdentifier)
-                .compactMapValues { $0.first }
-                .values
-            
-            return Array(uniqueReminders.compactMap { EventModel(from: $0) })
         }
     }
     
@@ -170,14 +149,19 @@ extension EventModel {
             participants: .init(from: event),
             timeZone: calendar.isSubscribed || calendar.isDelegate ? nil : event.timeZone,
             hasRecurrenceRules: event.hasRecurrenceRules || event.isDetached,
-            priority: nil
+            priority: nil,
+            meetingLink: MeetingLinkDetector.detect(
+                url: event.url,
+                location: event.location,
+                notes: event.notes
+            )
         )
     }
     
     init?(from reminder: EKReminder) {
         guard let calendar = reminder.calendar,
               let dueDateComponents = reminder.dueDateComponents,
-              let date = Calendar.current.date(from: dueDateComponents)
+              let date = reminder.displayedDueDate
         else { return nil }
         
         self.init(
@@ -188,13 +172,14 @@ extension EventModel {
             location: reminder.location,
             notes: reminder.notes,
             url: reminder.url,
-            isAllDay: dueDateComponents.hour == nil,
+            isAllDay: dueDateComponents.isAllDayReminder,
             type: .reminder(completed: reminder.isCompleted),
             calendar: .init(from: calendar),
             participants: [],
             timeZone: calendar.isSubscribed || calendar.isDelegate ? nil : reminder.timeZone,
             hasRecurrenceRules: reminder.hasRecurrenceRules,
-            priority: .init(from: reminder.priority)
+            priority: .init(from: reminder.priority),
+            meetingLink: nil
         )
     }
 }
@@ -292,6 +277,43 @@ private extension EKEvent {
         let startOfDay = calendar.startOfDay(for: startDate)
         let endOfDay = calendar.dateInterval(of: .day, for: endDate)?.end
         return startDate == startOfDay && endDate == endOfDay
+    }
+}
+
+private extension EKReminder {
+    var displayedDueDate: Date? {
+        dueDateComponents?.reminderDate(
+            in: .current,
+            fallbackTimeZone: timeZone
+        )
+    }
+}
+
+private extension DateComponents {
+    var isAllDayReminder: Bool {
+        hour == nil && minute == nil && second == nil
+    }
+
+    func reminderDate(in calendar: Calendar, fallbackTimeZone: TimeZone?) -> Date? {
+        var reminderCalendar = calendar
+        if isAllDayReminder {
+            reminderCalendar = Calendar(identifier: .gregorian)
+            reminderCalendar.timeZone = calendar.timeZone
+        }
+
+        var components = self
+        components.calendar = reminderCalendar
+
+        if isAllDayReminder {
+            components.timeZone = reminderCalendar.timeZone
+            components.hour = 0
+            components.minute = 0
+            components.second = 0
+        } else if components.timeZone == nil {
+            components.timeZone = fallbackTimeZone ?? reminderCalendar.timeZone
+        }
+
+        return reminderCalendar.date(from: components)
     }
 }
 
